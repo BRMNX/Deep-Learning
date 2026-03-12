@@ -240,7 +240,64 @@ plt.show()
 **Output**
 由于手动编写的东西太粗糙了，训练时间长且效果一般.
 ![[所有图片/深度学习图/线性神经网络/Figure_3.png]]
-## 3.2 简易实现（待更新）
+## 3.2 简易实现
+实际上很多部分与手动实现是一样的.
+**Input**
+```python
+import torch
+from torch import nn
+from d2l import torch as d2l
+import matplotlib.pyplot as plt
+import matplotlib
+
+# 强制使用 TkAgg 后端，这样可以在普通 Python 脚本中弹出窗口显示图片
+matplotlib.use('TkAgg')
+
+batch_size = 256
+train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size)
+net = nn.Sequential(nn.Flatten(), nn.Linear(784, 10))
+nn.init.normal_(net[1].weight, mean=0, std=0.01)
+loss = nn.CrossEntropyLoss(reduction='none')
+trainer = torch.optim.SGD(net.parameters(), lr=0.1)
+num_epochs = 10
+d2l.train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
+plt.show()
+```
+softmax函数在`nn.CrossEntropyLoss`中隐式地实现，它会一直深入底层C++函数计算，它不直接利用softmax的原始定义，而是减去每个样本中的$\max(o_{j})$，避免指数溢出.
+==**源码解析**==
+注意这里用来初始化参数的`nn.init`方法实际上是对参数`net[1].weight`的初始化的覆盖.当调用模型`nn.Linear`时，其构造函数就自动初始化了`weight`和`bias`（并且它们的值服从均匀分布$U(-\sqrt k,\sqrt k)$，其中$k$是`in_features`的倒数，在这里就是$1 / 784$）.手动调用`nn.init`方法实际上是覆盖了参数的初始化，并且`normal_`指定了`weight`服从正态分布.
+查看`init.py`中的`normal_`方法实现：
+```python
+def normal_(tensor: Tensor, mean: float = 0., std: float = 1.) -> Tensor:
+    r"""Fills the input Tensor with values drawn from the normal
+    distribution :math:`\mathcal{N}(\text{mean}, \text{std}^2)`.
+    Args:
+        tensor: an n-dimensional `torch.Tensor`
+        mean: the mean of the normal distribution
+        std: the standard deviation of the normal distribution
+    Examples:
+        >>> w = torch.empty(3, 5)
+        >>> nn.init.normal_(w)
+    """
+    if torch.overrides.has_torch_function_variadic(tensor):
+        return torch.overrides.handle_torch_function(normal_, (tensor,), tensor=tensor, mean=mean, std=std)
+    return _no_grad_normal_(tensor, mean, std)
+```
+它首先检查传入的 `tensor` 是否是一个“特殊张量”（例如来自 `faiss`、`xla` 或其他重载了 torch 函数的库）.如果是，它会把控制权交给 `torch.overrides` 系统，让那个特殊的库去处理初始化逻辑.
+**正常流程**：如果是一个普通的 PyTorch Tensor（绝大多数情况），它就忽略 `if` 块，直接向下执行，调用内部函数 `_no_grad_normal_`.
+再来看`_no_grad_normal_`方法实现：
+```python
+def _no_grad_normal_(tensor, mean, std):
+    with torch.no_grad():
+        return tensor.normal_(mean, std)
+```
+它禁用梯度更新，并且调用`_TensorBase`类中的`normal_`方法，让张量真正地发生更新.此方法的实现：
+```python
+def normal_(self, mean: _float=0, std: _float=1, *, generator: Optional[Generator]=None) -> Tensor: ...
+```
+`tensor.normal_(...)` 让PyTorch调用**C++ 底层引擎**，Python 解释器会立刻跳转到 C++ 代码中的对应函数生成随机数.
+**Output**
+![[所有图片/深度学习图/线性神经网络/Figure_4.png]]
 ## 3.3 问题
 > [!question]
 > 增加训练轮次，为什么准确率会在一段时间后下降？如何解决？
