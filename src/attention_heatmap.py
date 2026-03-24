@@ -13,7 +13,7 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5), cma
     for i, (row_axes, row_matrices) in enumerate(zip(axes, matrices)):
         for j, (ax, matrix) in enumerate(zip(row_axes, row_matrices)):
             # 对每一列，ax是当前的子图轴对象，matrix是具体要显示的一个矩阵
-            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap)
+            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap, interpolation='bilinear')
             if titles:
                 ax.set_title(titles[j])
     fig.colorbar(pcm, ax=axes, shrink=0.6)
